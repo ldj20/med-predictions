@@ -1,1 +1,2 @@
 # med-predictions
+The hyperparam_tuning notebook is run to determine the best hyperparameters for each model training. Each notebook is run 10 times, once for each model. A sample CSV non-representative of actual data is included.
