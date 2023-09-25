@@ -1,0 +1,33 @@
+// CONSTRAIN ID
+CREATE CONSTRAINT lensId ON (publication:Publication) ASSERT publication.lens_id IS UNIQUE
+
+// CREATE INSTITUTIONS
+CALL apoc.periodic.iterate("MATCH (n:Author) return n", "UNWIND n.affiliations AS affil MERGE (i:Institution{name:affil}) MERGE (n)-[:AFFILIATED]->(i)", {batchSize:1000})
+YIELD batches, total RETURN batches, total
+
+// DELETE IMPOSSIBLE CITATIONS
+MATCH (p1:Publication)-[rel:CITES]->(p2:Publication) WHERE p1.year<p2.year DELETE rel
+
+// INITIALIZE METRIC
+CALL apoc.periodic.iterate("MATCH (p:Publication) WHERE p.year < 2020 RETURN p", "OPTIONAL MATCH (cited:Publication{year:p.year+1})-[:CITES]->(p) WITH p, count(cited) AS total_citations, {} AS props WITH p, apoc.map.setKey(props, toString(p.year+1), total_citations+p.year) as props SET p += props", {batchSize:1000})
+YIELD batches, total RETURN batches, total
+
+// INITIALIZE METRIC BASE
+CALL apoc.periodic.iterate("MATCH (p:Publication) RETURN p", "OPTIONAL MATCH (cited:Publication{year:p.year})-[:CITES]->(p) WITH p, count(cited) AS total_citations, {} AS props WITH p, apoc.map.setKey(props, toString(p.year), total_citations) as props SET p += props", {batchSize:1000})
+YIELD batches, total RETURN batches, total
+
+// MERGE AUTHORS
+MATCH (n:Author) WHERE n.magid IS NOT NULL
+WITH n.magid as magid, COLLECT(n) AS ns
+CALL apoc.refactor.mergeNodes(ns, {properties:{affiliations:"combine",first_name:"discard",last_name:"discard",initials:"discard",orcid:"discard"}}) YIELD node
+RETURN node;
+
+// RELATE COAUTHORS
+MATCH (pub1:Publication{lens_id:"asdf"})<-[:AUTHORED]-(authors1) MATCH (pub2:Publication{lens_id:"asdf"})<-[:AUTHORED]-(authors2)
+WHERE id(authors1)<>id(authors2)
+MERGE (authors1)-[:COAUTHOR]->(authors2)
+MERGE (authors1)<-[:COAUTHOR]-(authors2)
+
+// transition is_first property
+call apoc.periodic.iterate("MATCH (:Author{is_first:1})-[rel:AUTHORED]->(:Publication) RETURN rel", "SET rel.is_first = 1", {batchSize:1000})
+yield batches, total return batches, total
